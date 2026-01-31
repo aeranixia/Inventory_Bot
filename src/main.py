@@ -234,6 +234,29 @@ async def category_manage_cmd(inter: discord.Interaction):
 
     await inter.response.send_message(embed=emb, view=CategoryManageView(bot.conn, inter.guild), ephemeral=True)
 
+# ---- Slash command: /명령정리 ----
+@bot.tree.command(name="명령정리", description="슬래시 명령 중복(길드 잔재)을 정리합니다. (관리자 전용)")
+async def cleanup_cmd(inter: discord.Interaction):
+    if not inter.guild:
+        return await inter.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+
+    # 관리자만
+    from utils.perm import is_admin
+    if not is_admin(inter, bot.conn):
+        return await inter.response.send_message("권한이 없어요.", ephemeral=True)
+
+    await inter.response.defer(ephemeral=True)
+
+    # ✅ 현재 서버(길드)에 남아있는 길드 전용 커맨드 싹 제거
+    bot.tree.clear_commands(guild=inter.guild)
+    await bot.tree.sync(guild=inter.guild)
+
+    # ✅ 글로벌 커맨드는 그대로 유지(중복 원인인 길드 잔재만 삭제)
+    await inter.followup.send(
+        "✅ 길드(서버) 전용 커맨드 잔재를 정리했어요.\n"
+        "이제 /리포트, /설정 등이 1개만 보여야 정상입니다.",
+        ephemeral=True,
+    )
 
 
 # -------------------------------------- #
