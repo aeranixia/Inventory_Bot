@@ -23,7 +23,8 @@ from repo.category_repo import list_categories
 from backup import run_daily_backup, run_monthly_archive, force_backup_now, list_backup_files
 from utils.perm import is_admin
 
-
+ADMIN_GUILD_ID = int(os.environ.get("ADMIN_GUILD_ID", "0"))
+ADMIN_GUILD_OBJ = discord.Object(id=ADMIN_GUILD_ID) if ADMIN_GUILD_ID else None
 
 load_dotenv()
 
@@ -44,27 +45,28 @@ class InventoryBot(commands.Bot):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.conn = None  # sqlite3.Connection
 
-        async def setup_hook(self):
-            ensure_settings_schema(self.conn)
-            ensure_items_schema(self.conn)
+    async def setup_hook(self):
+        ensure_settings_schema(self.conn)
+        ensure_items_schema(self.conn)
 
-            # persistent view 등록은 OK
-            self.add_view(DashboardView())
+        # persistent view 등록
+        self.add_view(DashboardView())
 
-            # ✅ (중요) report loop는 여기서 딱 한 번만 start
-            if not self._report_loop.is_running():
-                self._report_loop.start()
+        # ✅ 보고서 루프는 한 번만
+        if not self._report_loop.is_running():
+            self._report_loop.start()
 
-            # ✅ 여기 추가: 특정 길드에 남아있는 길드 전용 커맨드 제거(중복 제거)
-            if CLEANUP_GUILD_ID:
-                g = discord.Object(id=CLEANUP_GUILD_ID)
-                self.tree.clear_commands(guild=g)
-                await self.tree.sync(guild=g)
-                print(f"[SYNC] Cleared guild commands on: {CLEANUP_GUILD_ID}")
+        # ✅ (중요) 길드 잔재 커맨드 삭제: 중복 제거
+        if CLEANUP_GUILD_ID:
+            g = discord.Object(id=CLEANUP_GUILD_ID)
+            self.tree.clear_commands(guild=g)
+            await self.tree.sync(guild=g)
+            print(f"[SYNC] Cleared guild commands on: {CLEANUP_GUILD_ID}")
 
-            # ✅ 글로벌 커맨드 동기화는 딱 한 번
-            await self.tree.sync()
-            print("[SYNC] Global sync requested")
+        # ✅ 글로벌 커맨드 동기화(1회)
+        await self.tree.sync()
+        print("[SYNC] Global sync requested")
+
 
     @tasks.loop(minutes=1)
     async def _report_loop(self):
@@ -235,26 +237,26 @@ async def category_manage_cmd(inter: discord.Interaction):
     await inter.response.send_message(embed=emb, view=CategoryManageView(bot.conn, inter.guild), ephemeral=True)
 
 # ---- Slash command: /명령정리 ----
-@bot.tree.command(name="명령정리", description="슬래시 명령 중복(길드 잔재)을 정리합니다. (관리자 전용)")
+@bot.tree.command(
+    name="명령정리",
+    description="슬래시 명령 중복(길드 잔재)을 정리합니다. (관리자 전용)",
+    guild=ADMIN_GUILD_OBJ,  # ✅ 길드 전용 등록(즉시 반영)
+)
 async def cleanup_cmd(inter: discord.Interaction):
     if not inter.guild:
         return await inter.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
 
-    # 관리자만
     from utils.perm import is_admin
     if not is_admin(inter, bot.conn):
         return await inter.response.send_message("권한이 없어요.", ephemeral=True)
 
     await inter.response.defer(ephemeral=True)
 
-    # ✅ 현재 서버(길드)에 남아있는 길드 전용 커맨드 싹 제거
     bot.tree.clear_commands(guild=inter.guild)
     await bot.tree.sync(guild=inter.guild)
 
-    # ✅ 글로벌 커맨드는 그대로 유지(중복 원인인 길드 잔재만 삭제)
     await inter.followup.send(
-        "✅ 길드(서버) 전용 커맨드 잔재를 정리했어요.\n"
-        "이제 /리포트, /설정 등이 1개만 보여야 정상입니다.",
+        "✅ 길드(서버) 전용 커맨드 잔재를 정리했어요. 이제 중복이 사라져야 정상입니다.",
         ephemeral=True,
     )
 
