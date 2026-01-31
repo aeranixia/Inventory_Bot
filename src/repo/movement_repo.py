@@ -137,3 +137,41 @@ def apply_stock_change(
         "warn_below": warn_below,
         "kst_text": k.kst_text,  # YYYY/MM/DD HH:MM:SS 형태로 이미 맞춰둔 now_kst 사용 전제
     }
+
+def log_simple_event(
+    conn: sqlite3.Connection,
+    guild_id: int,
+    item_id: int,
+    action: str,
+    reason: str,
+    actor_name: str,
+    actor_id: int,
+    kst_text: str,
+    epoch: int,
+    image_url: str | None = None,
+):
+    # 스냅샷용
+    row = conn.execute(
+        "SELECT i.name, i.code, c.name "
+        "FROM items i LEFT JOIN categories c ON c.id=i.category_id "
+        "WHERE i.guild_id=? AND i.id=? LIMIT 1",
+        (guild_id, item_id),
+    ).fetchone()
+
+    item_name = row[0] if row else ""
+    item_code = row[1] if row else None
+    cat_name = row[2] if row else ""
+
+    conn.execute(
+        "INSERT INTO movements("
+        "guild_id, item_id, item_name_snapshot, item_code_snapshot, category_name_snapshot, "
+        "image_url, action, qty_change, before_qty, after_qty, reason, success, error_message, "
+        "discord_name, discord_id, created_at_kst_text, created_at_epoch"
+        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            guild_id, item_id, item_name, item_code, cat_name,
+            image_url, action, 0, None, None, reason, 1, "",
+            actor_name, actor_id, kst_text, epoch
+        ),
+    )
+    conn.commit()

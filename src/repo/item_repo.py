@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
 
+from typing import Any
 from utils.time_kst import now_kst
 
 
@@ -95,3 +95,26 @@ def create_item(
     )
     conn.commit()
     return int(cur.lastrowid)
+
+
+def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int, reason: str):
+    reason = (reason or "").strip()
+    if not reason:
+        raise ValueError("사유를 입력해 주세요.")
+
+    row = conn.execute(
+        "SELECT id, name, code, qty, is_active FROM items WHERE guild_id=? AND id=? LIMIT 1",
+        (guild_id, item_id),
+    ).fetchone()
+    if not row:
+        raise ValueError("품목을 찾지 못했어요.")
+    if int(row[4]) == 0:
+        raise ValueError("이미 비활성화된 품목이에요.")
+
+    k = now_kst()
+    with conn:
+        conn.execute(
+            "UPDATE items SET is_active=0, deactivated_at=?, updated_at=? WHERE guild_id=? AND id=?",
+            (k.kst_text, k.kst_text, guild_id, item_id),
+        )
+    return {"id": row[0], "name": row[1], "code": row[2], "qty": row[3], "kst_text": k.kst_text}

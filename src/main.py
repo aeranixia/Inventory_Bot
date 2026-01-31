@@ -16,6 +16,9 @@ from repo.settings_repo import get_settings, ensure_settings_schema
 from ui.settings_view import SettingsView
 from ui.dashboard_view import DashboardView  # persistent view 등록용
 from reporting import force_send_daily_reports, force_send_monthly_prev_month
+from repo.schema_guard import ensure_items_schema
+from ui.category_manage import CategoryManageView
+from repo.category_repo import list_categories
 
 from backup import run_daily_backup, run_monthly_archive, force_backup_now, list_backup_files
 from utils.perm import is_admin
@@ -30,6 +33,8 @@ INTENTS.guilds = True
 INTENTS.members = True          # 봇 관리자 역할 부여/회수에 필요
 INTENTS.message_content = True  # 채팅 입력(검색 chat 버전) 받을 때 필요
 
+CLEANUP_GUILD_ID = int(os.environ.get("CLEANUP_GUILD_ID", "0"))
+
 # ---- Dev guild for cleanup ----
 DEV_GUILD_ID = int(os.environ.get("DEV_GUILD_ID", "0"))
 
@@ -39,30 +44,27 @@ class InventoryBot(commands.Bot):
         super().__init__(command_prefix="!", intents=INTENTS)
         self.conn = None  # sqlite3.Connection
 
-    async def setup_hook(self):
-        # settings 컬럼 자동 보강
-        ensure_settings_schema(self.conn)
+        async def setup_hook(self):
+            ensure_settings_schema(self.conn)
+            ensure_items_schema(self.conn)
 
-        # ✅ persistent view(재시작 후에도 버튼 살아있게)
-        self.add_view(DashboardView())
+            # persistent view 등록은 OK
+            self.add_view(DashboardView())
 
-        # ✅ DEV 길드 커맨드 정리(선택)
-        if DEV_GUILD_ID:
-            guild_obj = discord.Object(id=DEV_GUILD_ID)
+            # ✅ (중요) report loop는 여기서 딱 한 번만 start
+            if not self._report_loop.is_running():
+                self._report_loop.start()
 
-            # ✅ 글로벌 커맨드를 DEV 서버로 복사 → 즉시 반영용
-            self.tree.copy_global_to(guild=guild_obj)
-            await self.tree.sync(guild=guild_obj)
-            print(f"[SYNC] Synced commands to DEV guild: {DEV_GUILD_ID}")
-        else:
-            # ✅ 글로벌 동기화(전파가 늦게 보일 수 있음)
+            # ✅ 여기 추가: 특정 길드에 남아있는 길드 전용 커맨드 제거(중복 제거)
+            if CLEANUP_GUILD_ID:
+                g = discord.Object(id=CLEANUP_GUILD_ID)
+                self.tree.clear_commands(guild=g)
+                await self.tree.sync(guild=g)
+                print(f"[SYNC] Cleared guild commands on: {CLEANUP_GUILD_ID}")
+
+            # ✅ 글로벌 커맨드 동기화는 딱 한 번
             await self.tree.sync()
             print("[SYNC] Global sync requested")
-
-
-        # ✅ 루프 시작(중복 start 방지)
-        if not self._report_loop.is_running():
-            self._report_loop.start()
 
     @tasks.loop(minutes=1)
     async def _report_loop(self):
@@ -212,6 +214,26 @@ async def backup_list_cmd(inter: discord.Interaction, 개수: int = 20):
 
     text = "🗂️ **백업 목록(최신순)**\n" + "\n".join(lines)
     await inter.response.send_message(text, ephemeral=True)
+
+# ---- Slash command: /카테고리관리 ----
+@bot.tree.command(name="카테고리관리", description="카테고리 추가/비활성화(삭제)를 관리합니다.")
+async def category_manage_cmd(inter: discord.Interaction):
+    if not inter.guild:
+        return await inter.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+
+    if not is_admin(inter, bot.conn):
+        return await inter.response.send_message("권한이 없어요.", ephemeral=True)
+
+    cats = list_categories(bot.conn, inter.guild_id, include_inactive=True)
+    emb = discord.Embed(title="카테고리 관리", description="추가/비활성화(삭제 대체)를 할 수 있어요.")
+    # (간단 표시)
+    act = [c["name"] for c in cats if c["is_active"] == 1]
+    ina = [c["name"] for c in cats if c["is_active"] == 0]
+    emb.add_field(name=f"활성({len(act)})", value="\n".join([f"- {n}" for n in act]) or "- 없음", inline=False)
+    emb.add_field(name=f"비활성({len(ina)})", value="\n".join([f"- {n}" for n in ina]) or "- 없음", inline=False)
+
+    await inter.response.send_message(embed=emb, view=CategoryManageView(bot.conn, inter.guild), ephemeral=True)
+
 
 
 # -------------------------------------- #

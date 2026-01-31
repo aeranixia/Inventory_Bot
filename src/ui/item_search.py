@@ -2,9 +2,15 @@
 from __future__ import annotations
 
 import discord
+
 from discord.ui import Modal, TextInput, View, Select
 from repo.item_repo import search_items
 from ui.item_actions import ItemActionsView
+
+from utils.perm import is_admin
+from ui.item_actions import ItemActionsView
+from ui.item_delete import ItemDeactivateView
+from ui.item_image import ItemImageView
 
 def _item_label(name: str, code: str | None) -> str:
     # Select label은 최대 100자
@@ -104,27 +110,34 @@ class ItemResultSelect(Select):
 
             emb = build_item_embed(interaction.guild, chosen)
 
-            # ✅ 1) 여기서 import(순환/초기 로딩 문제 회피)
-            from ui.item_actions import ItemActionsView
+            base = ItemActionsView(int(chosen["id"]), str(chosen.get("name") or ""))
+
+            # ✅ 1) 기본 액션(입고/출고/정정)
+            base_view: discord.ui.View = ItemActionsView(
+                item_id=chosen_id,
+                item_name=str(chosen.get("name") or ""),
+            )
+
+            # ✅ 2) 관리자면 품목 삭제(비활성화) 버튼 추가
+            if is_admin(interaction, interaction.client.conn):
+                from ui.item_delete import ItemDeactivateView
+                base = ItemDeactivateView(int(chosen["id"]), str(chosen.get("name") or ""), base_view=base)
+
+            # ✅ 3) 누구나 사진 업로드 버튼 추가(요구사항)
+            view = ItemImageView(
+                item_id=chosen_id,
+                item_name=str(chosen.get("name") or ""),
+                base_view=base_view,
+            )
 
             await interaction.followup.send(
                 embed=emb,
                 ephemeral=True,
-                view=ItemActionsView(
-                    item_id=chosen_id,
-                    item_name=str(chosen.get("name") or ""),
-                ),
+                view=view,
             )
 
-        except Exception as e:
-            # ✅ 2) 실패해도 사용자에게 원인 표시
-            try:
-                await interaction.followup.send(
-                    f"표시 실패: `{type(e).__name__}: {e}`",
-                    ephemeral=True,
-                )
-            except Exception:
-                pass
+        except Exception:
+            pass
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item=None):
         # ✅ 콜백 예외가 나도 interaction failed 대신 메시지로 보여주기
