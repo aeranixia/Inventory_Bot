@@ -50,6 +50,7 @@ class InventoryBot(commands.Bot):
         self.conn = None  # sqlite3.Connection
 
     async def setup_hook(self):
+        
         # ✅ DB 스키마 가드(기존 DB에도 컬럼 자동 추가)
         ensure_settings_schema(self.conn)
         ensure_items_schema(self.conn)
@@ -77,6 +78,8 @@ class InventoryBot(commands.Bot):
         # ✅ 글로벌 커맨드 동기화(반영은 느릴 수 있음)
         await self.tree.sync()
         print("[SYNC] Global sync requested")
+    from repo.category_repo import ensure_categories_schema
+
 
     @tasks.loop(minutes=1)
     async def _report_loop(self):
