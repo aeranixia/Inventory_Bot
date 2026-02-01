@@ -9,7 +9,7 @@ def _get_item_row(conn: sqlite3.Connection, guild_id: int, item_id: int) -> dict
     row = conn.execute(
         """
         SELECT
-            i.id, i.name, i.code, i.qty, i.warn_below, i.category_id,
+            i.id, i.name, i.code, i.image_url, i.qty, i.warn_below, i.category_id,
             COALESCE(c.name, '기타') AS category_name
         FROM items i
         LEFT JOIN categories c
@@ -26,7 +26,7 @@ def _get_item_row(conn: sqlite3.Connection, guild_id: int, item_id: int) -> dict
     try:
         return dict(row)
     except Exception:
-        keys = ["id", "name", "code", "qty", "warn_below", "category_id", "category_name"]
+        keys = ["id", "name", "code", "image_url", "qty", "warn_below", "category_id", "category_name"]
         return {k: row[i] for i, k in enumerate(keys)}
 
 
@@ -59,6 +59,7 @@ def apply_stock_change(
     item_name = str(item["name"])
     item_code = item.get("code")
     cat_name = str(item.get("category_name") or "기타")
+    image_url = str(item.get("image_url") or "")
     before = int(item["qty"])
     warn_below = item.get("warn_below")
 
@@ -116,7 +117,7 @@ def apply_stock_change(
         """,
         (
             guild_id, item_id,
-            item_name, item_code, cat_name, None,
+            item_name, item_code, cat_name, image_url,
             action, delta, before, after,
             reason, 1, "",
             actor_name, actor_id,
@@ -141,18 +142,31 @@ def apply_stock_change(
 def log_simple_event(
     conn: sqlite3.Connection,
     guild_id: int,
-    item_id: int,
-    action: str,
-    reason: str,
-    actor_name: str,
-    actor_id: int,
-    kst_text: str,
-    epoch: int,
+    item_id: int | None = None,
+    action: str | None = None,
+    reason: str = "",
+    actor_name: str = "",
+    actor_id: int = 0,
+    kst_text: str | None = None,
+    epoch: int | None = None,
     image_url: str | None = None,
+    **_ignored,
 ):
+    """품목 관련 이벤트를 movements에 기록.
+
+    - 예전 코드에서 키워드 인자(item_name 등)를 넘겨도 무시하도록 호환 처리.
+    - 시간(kst_text/epoch)을 생략하면 자동으로 now_kst()로 채웁니다.
+    """
+    if item_id is None or action is None:
+        raise ValueError("item_id/action is required")
+    if kst_text is None or epoch is None:
+        from utils.time_kst import now_kst
+        k = now_kst()
+        kst_text = k.kst_text
+        epoch = k.epoch
     # 스냅샷용
     row = conn.execute(
-        "SELECT i.name, i.code, c.name "
+        "SELECT i.name, i.code, COALESCE(c.name,'기타'), COALESCE(i.image_url,'') "
         "FROM items i LEFT JOIN categories c ON c.id=i.category_id "
         "WHERE i.guild_id=? AND i.id=? LIMIT 1",
         (guild_id, item_id),
@@ -161,6 +175,8 @@ def log_simple_event(
     item_name = row[0] if row else ""
     item_code = row[1] if row else None
     cat_name = row[2] if row else ""
+    # 매개변수로 image_url을 못 받았으면 items.image_url을 사용
+    image_url = image_url or (row[3] if row else "") or ""
 
     conn.execute(
         "INSERT INTO movements("
@@ -172,6 +188,32 @@ def log_simple_event(
             guild_id, item_id, item_name, item_code, cat_name,
             image_url, action, 0, None, None, reason, 1, "",
             actor_name, actor_id, kst_text, epoch
+        ),
+    )
+    conn.commit()
+
+
+def log_system_event(
+    conn: sqlite3.Connection,
+    guild_id: int,
+    action: str,
+    reason: str,
+    actor_name: str,
+    actor_id: int,
+    kst_text: str,
+    epoch: int,
+):
+    """item_id 없이 남기는 시스템 로그(카테고리 변경 등)"""
+    conn.execute(
+        "INSERT INTO movements("
+        "guild_id, item_id, item_name_snapshot, item_code_snapshot, category_name_snapshot, "
+        "image_url, action, qty_change, before_qty, after_qty, reason, success, error_message, "
+        "discord_name, discord_id, created_at_kst_text, created_at_epoch"
+        ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            guild_id, None, "", None, "",
+            "", action, 0, None, None, reason, 1, "",
+            actor_name, actor_id, kst_text, epoch,
         ),
     )
     conn.commit()

@@ -258,8 +258,8 @@ class SettingsView(View):
                 alert_channel_id=interaction.channel_id,
                 report_channel_id=interaction.channel_id,
             )
-            await self._log_update(interaction, f"재고_알림 채널 지정: #{interaction.channel.name}")
-            await self.refresh_panel(interaction, note="재고_알림(리포트) 채널이 설정되었습니다.")
+            await self._log_update(interaction, f"재고 알림 채널 지정: #{interaction.channel.name}")
+            await self.refresh_panel(interaction, note="재고 알림(리포트) 채널이 설정되었습니다.")
 
     async def _set_report_time(self, interaction: discord.Interaction, h: int, m: int, via: str):
         if not is_admin(interaction, self.conn):
