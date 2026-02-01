@@ -85,6 +85,13 @@ class CategorySelect(Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
+        # 간혹 선택값이 비어있는 상태로 들어오는 경우가 있어서 방어
+        if not self.values or not str(self.values[0] or "").strip():
+            return await interaction.response.send_message(
+                "카테고리를 먼저 선택해 주세요.",
+                ephemeral=True,
+            )
+
         cid = int(self.values[0])
         c = next((x for x in self.categories if int(x["id"]) == cid), None)
         if not c:
