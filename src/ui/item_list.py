@@ -8,7 +8,7 @@ from repo.category_repo import list_active_categories
 from repo.item_repo import (
     list_items_by_category,
     count_items_by_category,
-    count_active_items_by_category,
+    count_active_items,
 )
 
 PAGE_SIZE = 12
