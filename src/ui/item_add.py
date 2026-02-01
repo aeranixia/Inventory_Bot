@@ -122,6 +122,15 @@ class AddItemStartView(View):
     def __init__(self, conn, guild_id: int):
         super().__init__(timeout=5 * 60)
         cats = list_active_categories(conn, guild_id)
+
+# ✅ 카테고리가 하나도 없으면 기본 '기타'를 만들어서 진행(초기 /설정 생략 대비)
+if not cats:
+    try:
+        from repo.category_repo import get_or_create_etc_category
+        get_or_create_etc_category(conn, guild_id)
+        cats = list_active_categories(conn, guild_id)
+    except Exception:
+        cats = []
         self.add_item(CategorySelect(conn, guild_id, cats))
 
 class ContinueAddView(View):

@@ -171,63 +171,17 @@ def search_items(conn: sqlite3.Connection, guild_id: int, keyword: str, limit: i
 
 
 def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int, reason: str = ""):
-    """품목 비활성화(삭제 대체). reason은 UI/로그용 (DB 컬럼은 현재 없음)."""
-    k = now_kst().kst_text
-    qty = _as_int(qty, default=0)
-    warn_below = _as_int(warn_below, default=0)
+    """품목 비활성화(삭제 대체).
 
+    reason은 현재 items 테이블에 저장하지 않지만,
+    UI/호출부 호환을 위해 파라미터로 유지합니다.
+    """
+    k = now_kst().kst_text
     conn.execute(
         "UPDATE items SET is_active=0, deactivated_at=?, updated_at=? WHERE guild_id=? AND id=?",
         (k, k, guild_id, item_id),
     )
     conn.commit()
-
-
-def count_active_items_in_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
-    row = conn.execute(
-        """
-        SELECT COUNT(*)
-        FROM items
-        WHERE guild_id=? AND category_id=? AND is_active=1
-        """,
-        (guild_id, category_id),
-    ).fetchone()
-    return int(row[0] if row else 0)
-
-
-def list_active_items_in_category(
-    conn: sqlite3.Connection,
-    guild_id: int,
-    category_id: int,
-    limit: int = 20,
-    offset: int = 0,
-) -> list[dict]:
-    rows = conn.execute(
-        """
-        SELECT id, name, code, qty, warn_below, note, storage_location, image_url
-        FROM items
-        WHERE guild_id=? AND category_id=? AND is_active=1
-        ORDER BY name ASC
-        LIMIT ? OFFSET ?
-        """,
-        (guild_id, category_id, int(limit), int(offset)),
-    ).fetchall()
-
-    out: list[dict] = []
-    for r in rows:
-        out.append(
-            {
-                "id": r[0],
-                "name": r[1],
-                "code": r[2],
-                "qty": r[3],
-                "warn_below": r[4],
-                "note": r[5],
-                "storage_location": r[6],
-                "image_url": r[7],
-            }
-        )
-    return out
 
 
 def reactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int):

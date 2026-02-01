@@ -135,6 +135,16 @@ class _BtnAddItem(Button):
 
         conn = interaction.client.conn
 
+        # ✅ 첫 사용자가 /설정 을 안 눌렀어도 동작하도록 기본 row 보강
+        try:
+            from repo.bootstrap_repo import ensure_initialized
+            from utils.time_kst import now_kst
+            k = now_kst()
+            ensure_initialized(conn, interaction.guild_id, k.kst_text)
+        except Exception:
+            # 초기화 실패해도 UI 자체는 띄우되, 이후 단계에서 에러가 나면 사용자에게 표시됨
+            pass
+
         try:
             # 순환 import/실수로 인한 ImportError 방지: 여기서 import
             from ui.item_add import AddItemStartView
