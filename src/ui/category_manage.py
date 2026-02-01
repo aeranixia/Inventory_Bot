@@ -5,11 +5,8 @@ import discord
 from discord.ui import View, Button, Select, Modal, TextInput
 
 from utils.perm import is_admin
-from repo.category_repo import (
-    list_categories,
-    create_or_reactivate_category,
-    deactivate_category_and_move_items_to_etc,
-)
+from repo.category_repo import list_categories,create_or_reactivate_category, deactivate_category_and_move_items_to_etc
+
 from repo.movement_repo import log_system_event, log_simple_event
 from utils.time_kst import now_kst
 
