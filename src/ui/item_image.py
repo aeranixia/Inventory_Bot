@@ -34,7 +34,7 @@ class ItemImageView(View):
         self.item_name = item_name
 
         if base_view:
-            for child in base_view.children:
+            for child in list(base_view.children):
                 self.add_item(child)
 
         self.add_item(_BtnUploadImage(item_id, item_name))

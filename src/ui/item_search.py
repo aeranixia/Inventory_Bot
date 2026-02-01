@@ -2,29 +2,25 @@
 from __future__ import annotations
 
 import discord
-
 from discord.ui import Modal, TextInput, View, Select
+
 from repo.item_repo import search_items
 from ui.item_actions import ItemActionsView
-
 from utils.perm import is_admin
-from ui.item_actions import ItemActionsView
-from ui.item_delete import ItemDeactivateView
-from ui.item_image import ItemImageView
+
 
 def _item_label(name: str, code: str | None) -> str:
-    # Select label은 최대 100자
     if code:
         s = f"{name} ({code})"
     else:
         s = name
     return s[:100]
 
+
 def _item_desc(category_name: str, qty: int | None) -> str:
-    # Select description은 최대 100자
     q = "?" if qty is None else str(qty)
-    s = f"{category_name} · 재고 {q}"
-    return s[:100]
+    return f"{category_name} · 재고 {q}"[:100]
+
 
 def build_item_embed(guild: discord.Guild, item: dict) -> discord.Embed:
     name = item.get("name") or "(이름 없음)"
@@ -33,6 +29,7 @@ def build_item_embed(guild: discord.Guild, item: dict) -> discord.Embed:
     cat = item.get("category_name") or "기타"
     note = item.get("note") or "-"
     loc = item.get("storage_location") or "-"
+    img = item.get("image_url")
 
     emb = discord.Embed(title=name, description="품목 상세")
     emb.add_field(name="코드", value=str(code), inline=True)
@@ -40,8 +37,11 @@ def build_item_embed(guild: discord.Guild, item: dict) -> discord.Embed:
     emb.add_field(name="현재 재고", value=str(qty), inline=True)
     emb.add_field(name="보관 위치", value=str(loc), inline=False)
     emb.add_field(name="메모", value=str(note), inline=False)
+    if img:
+        emb.set_image(url=str(img))
     emb.set_footer(text=f"{guild.name} · 품목 ID {item.get('id')}")
     return emb
+
 
 class ItemSearchModal(Modal, title="품목 검색"):
     q = TextInput(
@@ -67,12 +67,11 @@ class ItemSearchModal(Modal, title="품목 검색"):
                 ephemeral=True,
             )
 
-        view = ItemSearchResultsView(items)
         await interaction.response.send_message(
             f"검색 결과 {len(items)}개 (최대 20개 표시)\n"
             "원하는 품목을 선택하면 상세가 표시됩니다.",
             ephemeral=True,
-            view=view,
+            view=ItemSearchResultsView(items),
         )
 
 
@@ -83,22 +82,17 @@ class ItemResultSelect(Select):
         for it in items:
             opts.append(
                 discord.SelectOption(
-                    label=_item_label(it.get("name",""), it.get("code")),
+                    label=_item_label(it.get("name", ""), it.get("code")),
                     value=str(it.get("id")),
-                    description=_item_desc(it.get("category_name","기타"), it.get("qty")),
+                    description=_item_desc(it.get("category_name", "기타"), it.get("qty")),
                 )
             )
-        super().__init__(
-            placeholder="품목을 선택하세요",
-            min_values=1,
-            max_values=1,
-            options=opts,
-        )
+        super().__init__(placeholder="품목을 선택하세요", min_values=1, max_values=1, options=opts)
 
     async def callback(self, interaction: discord.Interaction):
-        # ✅ 0) 먼저 ACK(3초 타임아웃 방지)
+        # ✅ ACK(3초 타임아웃 방지)
         try:
-            await interaction.response.defer(ephemeral=True)  # thinking=True 금지(버전차이/컴포넌트 차이)
+            await interaction.response.defer(ephemeral=True)
         except Exception:
             pass
 
@@ -110,51 +104,25 @@ class ItemResultSelect(Select):
 
             emb = build_item_embed(interaction.guild, chosen)
 
-            base = ItemActionsView(int(chosen["id"]), str(chosen.get("name") or ""))
+            # 기본 3버튼(입고/출고/정정)
+            view = ItemActionsView(item_id=chosen_id, item_name=str(chosen.get("name") or ""))
 
-            # ✅ 1) 기본 액션(입고/출고/정정)
-            base_view: discord.ui.View = ItemActionsView(
-                item_id=chosen_id,
-                item_name=str(chosen.get("name") or ""),
-            )
+            # 사진 업로드 버튼(누구나)
+            from ui.item_image import _BtnUploadImage
+            view.add_item(_BtnUploadImage(chosen_id, str(chosen.get("name") or "")))
 
-            # ✅ 2) 관리자면 품목 삭제(비활성화) 버튼 추가
+            # 품목 삭제(비활성화) 버튼(관리자)
             if is_admin(interaction, interaction.client.conn):
-                from ui.item_delete import ItemDeactivateView
-                base = ItemDeactivateView(int(chosen["id"]), str(chosen.get("name") or ""), base_view=base)
+                from ui.item_delete import _BtnDeactivate
+                view.add_item(_BtnDeactivate(chosen_id, str(chosen.get("name") or "")))
 
-            # ✅ 3) 누구나 사진 업로드 버튼 추가(요구사항)
-            view = ItemImageView(
-                item_id=chosen_id,
-                item_name=str(chosen.get("name") or ""),
-                base_view=base_view,
-            )
+            await interaction.followup.send(embed=emb, ephemeral=True, view=view)
 
-            await interaction.followup.send(
-                embed=emb,
-                ephemeral=True,
-                view=view,
-            )
-
-        except Exception:
-            pass
-
-    async def on_error(self, interaction: discord.Interaction, error: Exception, item=None):
-        # ✅ 콜백 예외가 나도 interaction failed 대신 메시지로 보여주기
-        try:
-            if not interaction.response.is_done():
-                await interaction.response.send_message(
-                    f"오류: `{type(error).__name__}: {error}`",
-                    ephemeral=True,
-                )
-            else:
-                await interaction.followup.send(
-                    f"오류: `{type(error).__name__}: {error}`",
-                    ephemeral=True,
-                )
-        except Exception:
-            pass
-
+        except Exception as e:
+            try:
+                await interaction.followup.send(f"표시 실패: `{type(e).__name__}: {e}`", ephemeral=True)
+            except Exception:
+                pass
 
 
 class ItemSearchResultsView(View):

@@ -1,7 +1,11 @@
 # src/ui/dashboard_view.py
 from __future__ import annotations
+
 import discord
 from discord.ui import View, Button
+
+from utils.perm import is_admin
+
 
 class DashboardView(View):
     def __init__(self):
@@ -23,7 +27,16 @@ class _BtnIncoming(Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("TODO: 입고 UI 연결", ephemeral=True)
+        if not interaction.guild:
+            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+        if not is_admin(interaction, interaction.client.conn):
+            return await interaction.response.send_message("권한이 없어요.", ephemeral=True)
+
+        from ui.item_action_search import ActionItemSearchModal
+        await interaction.response.send_modal(
+            ActionItemSearchModal(interaction.client.conn, interaction.guild_id, action="IN")
+        )
+
 
 class _BtnOutgoing(Button):
     def __init__(self):
@@ -34,7 +47,16 @@ class _BtnOutgoing(Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("TODO: 출고 UI 연결", ephemeral=True)
+        if not interaction.guild:
+            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+        if not is_admin(interaction, interaction.client.conn):
+            return await interaction.response.send_message("권한이 없어요.", ephemeral=True)
+
+        from ui.item_action_search import ActionItemSearchModal
+        await interaction.response.send_modal(
+            ActionItemSearchModal(interaction.client.conn, interaction.guild_id, action="OUT")
+        )
+
 
 class _BtnAdjust(Button):
     def __init__(self):
@@ -45,7 +67,16 @@ class _BtnAdjust(Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.send_message("TODO: 정정 UI 연결", ephemeral=True)
+        if not interaction.guild:
+            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+        if not is_admin(interaction, interaction.client.conn):
+            return await interaction.response.send_message("권한이 없어요.", ephemeral=True)
+
+        from ui.item_action_search import ActionItemSearchModal
+        await interaction.response.send_modal(
+            ActionItemSearchModal(interaction.client.conn, interaction.guild_id, action="ADJUST")
+        )
+
 
 class _BtnSearch(Button):
     def __init__(self):
@@ -61,6 +92,7 @@ class _BtnSearch(Button):
 
         from ui.search_router import start_item_search
         await start_item_search(interaction)
+
 
 class _BtnAddItem(Button):
     def __init__(self):
