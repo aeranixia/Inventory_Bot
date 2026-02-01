@@ -7,7 +7,40 @@ import sqlite3
 from repo.settings_repo import get_settings, set_dashboard_message_id
 from ui.dashboard_view import DashboardView
 
+# 현재/과거 대시보드 제목(버전 바뀌며 제목이 달라져도 중복 핀이 쌓이지 않게)
 DASHBOARD_TITLE = "재고 대시보드"
+_LEGACY_TITLES = {
+    "재고 대시보드",
+    "재고 봇 대시보드",
+    "📦 재고 관리 대시보드",
+}
+
+
+def _is_dashboard_message(msg: discord.Message, *, bot_id: int | None) -> bool:
+    """대시보드로 추정되는 메시지인지(과거 버전 포함)."""
+    # 봇 메시지만 정리(안전)
+    if bot_id and getattr(msg.author, "id", None) != bot_id:
+        return False
+
+    # (1) embed title 기준(가장 흔한 케이스)
+    if msg.embeds and msg.embeds[0].title:
+        title = str(msg.embeds[0].title)
+        if title in _LEGACY_TITLES:
+            return True
+        if "대시보드" in title:
+            return True
+
+    # (2) 컴포넌트 custom_id 프리픽스 기준(타이틀이 달라진 경우)
+    try:
+        for row in (msg.components or []):
+            for child in getattr(row, "children", []) or []:
+                cid = getattr(child, "custom_id", None)
+                if cid and str(cid).startswith("inv:dash:"):
+                    return True
+    except Exception:
+        pass
+
+    return False
 
 
 def build_dashboard_embed(guild: discord.Guild) -> discord.Embed:
@@ -20,9 +53,10 @@ def build_dashboard_embed(guild: discord.Guild) -> discord.Embed:
 
 
 async def _cleanup_dashboard_pins(channel: discord.TextChannel, keep_message_id: int) -> None:
-    """
-    같은 채널에서 대시보드 핀이 여러 개 생기는 상황 대비:
-    - '재고 대시보드' 제목의 봇 메시지 중 keep_message_id를 제외한 나머지 핀 해제 + (가능하면) 삭제
+    """같은 채널에서 대시보드 핀이 여러 개 생기는 상황 대비.
+
+    과거 버전에서 제목/임베드가 조금씩 달라져서 중복이 쌓일 수 있음.
+    keep_message_id를 제외한 '대시보드로 추정되는' 봇 메시지 핀을 해제하고(가능하면) 삭제한다.
     """
     try:
         pins = await channel.pins()
@@ -36,14 +70,7 @@ async def _cleanup_dashboard_pins(channel: discord.TextChannel, keep_message_id:
         if msg.id == keep_message_id:
             continue
 
-        # 봇 메시지만 정리(안전)
-        if bot_id and msg.author and msg.author.id != bot_id:
-            continue
-
-        if not msg.embeds:
-            continue
-
-        if msg.embeds[0].title != DASHBOARD_TITLE:
+        if not _is_dashboard_message(msg, bot_id=bot_id):
             continue
 
         # 핀 해제
