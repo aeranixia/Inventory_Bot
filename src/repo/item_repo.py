@@ -70,6 +70,7 @@ def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int, reaso
     k = now_kst().kst_text
     conn.execute(
         "UPDATE items SET is_active=0, deactivated_at=?, updated_at=? WHERE guild_id=? AND id=?",
+<<<<<<< HEAD
         (k, k, guild_id, item_id),
     )
     conn.commit()
@@ -116,3 +117,8 @@ def search_items_inactive(conn: sqlite3.Connection, guild_id: int, keyword: str,
             keys = ["id","name","code","qty","note","storage_location","category_name","image_url"]
             out.append({k: r[i] for i,k in enumerate(keys)})
     return out
+=======
+        (reason, k, guild_id, item_id),
+    )
+    conn.commit()
+>>>>>>> a6aa13ada00ac145685d967cc0b7e75f5dd2e922
