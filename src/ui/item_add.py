@@ -15,10 +15,18 @@ def _to_int(text: str) -> int:
     return int(s)
 
 
+def _to_int_optional(text: str, default: int = 0) -> int:
+    """빈칸이면 default로 처리 (0 등)."""
+    s = (text or "").strip().replace(",", "")
+    if not s:
+        return default
+    return int(s)
+
+
 class AddItemModal(Modal):
     name_in = TextInput(label="품목명", placeholder="예: 팔물탕", required=True, max_length=60)
     code_in = TextInput(label="코드(선택)", placeholder="예: 49 / G15 (없으면 비움)", required=False, max_length=30)
-    qty_in = TextInput(label="초기 재고(숫자)", placeholder="예: 100", required=True, max_length=12)
+    qty_in = TextInput(label="초기 재고(숫자)", placeholder="예: 100 (비우면 0)", required=False, max_length=12)
     note_in = TextInput(label="메모(선택)", placeholder="예: 주의사항/비고", required=False, max_length=200)
     loc_in = TextInput(label="보관 위치(선택)", placeholder="예: 1층 탕전실 선반 A", required=False, max_length=120)
 
@@ -31,7 +39,7 @@ class AddItemModal(Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         try:
-            qty = _to_int(str(self.qty_in.value))
+            qty = _to_int_optional(str(self.qty_in.value), default=0)
             if qty < 0:
                 return await interaction.response.send_message("재고는 0 이상이어야 해요.", ephemeral=True)
 
@@ -40,7 +48,7 @@ class AddItemModal(Modal):
                 self.guild_id,
                 self.category_id,
                 str(self.name_in.value),
-                str(self.code_in.value),
+                (str(self.code_in.value).strip() or None),
                 qty,
                 str(self.note_in.value),
                 str(self.loc_in.value),

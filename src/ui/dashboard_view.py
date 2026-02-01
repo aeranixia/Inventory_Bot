@@ -4,7 +4,6 @@ from __future__ import annotations
 import discord
 from discord.ui import View, Button
 from utils.perm import is_admin
-from ui.item_add import AddItemStartView
 from ui.item_action_search import ActionItemSearchModal
 from ui.search_router import start_item_search
 
@@ -18,7 +17,39 @@ class DashboardView(View):
         self.add_item(_BtnOutgoing())
         self.add_item(_BtnAdjust())
         self.add_item(_BtnSearch())
+        self.add_item(_BtnListAll())
         self.add_item(_BtnAddItem())
+
+
+class _BtnListAll(Button):
+    def __init__(self):
+        super().__init__(
+            label="전체보기",
+            style=discord.ButtonStyle.secondary,
+            custom_id="inv:dash:list_all",
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        if not interaction.guild:
+            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
+
+        # 3초 타임아웃 방지
+        await interaction.response.defer(ephemeral=True)
+
+        try:
+            from ui.item_list import ItemListView
+
+            view = ItemListView(interaction.client.conn, interaction.guild_id)
+            await view.send(interaction)
+        except Exception as e:
+            print("[LIST_ALL_ERROR]", repr(e))
+            try:
+                await interaction.followup.send(
+                    f"전체보기 실패: `{type(e).__name__}: {e}`",
+                    ephemeral=True,
+                )
+            except Exception:
+                pass
 
 
 class _BtnIncoming(Button):
@@ -108,8 +139,18 @@ class _BtnAddItem(Button):
 
         conn = interaction.client.conn
 
-        await interaction.response.send_message(
-            "추가할 품목의 **카테고리를 선택**하세요.",
-            ephemeral=True,
-            view=AddItemStartView(conn, interaction.guild_id),
-        )
+        try:
+            # 순환 import/실수로 인한 ImportError 방지: 여기서 import
+            from ui.item_add import AddItemStartView
+
+            await interaction.response.send_message(
+                "추가할 품목의 **카테고리를 선택**하세요.",
+                ephemeral=True,
+                view=AddItemStartView(conn, interaction.guild_id),
+            )
+        except Exception as e:
+            print("[ADD_ITEM_BTN_ERROR]", repr(e))
+            await interaction.response.send_message(
+                f"품목 추가 UI를 여는 중 오류가 발생했어요: `{type(e).__name__}: {e}`",
+                ephemeral=True,
+            )

@@ -5,6 +5,18 @@ import sqlite3
 from utils.time_kst import now_kst
 
 
+def _as_int(v, default: int = 0) -> int:
+    """UI/모달에서 빈 문자열이 들어오는 케이스 방어."""
+    if v is None:
+        return default
+    if isinstance(v, int):
+        return v
+    s = str(v).strip().replace(",", "")
+    if s == "":
+        return default
+    return int(s)
+
+
 def add_item(
     conn: sqlite3.Connection,
     guild_id: int,
@@ -30,11 +42,11 @@ def add_item(
         """,
         (
             guild_id,
-            category_id,
+            _as_int(category_id, default=0),
             (name or "").strip(),
             (code or "").strip() or None,
-            int(qty),
-            int(warn_below),
+            _as_int(qty, default=0),
+            _as_int(warn_below, default=0),
             (note or "").strip(),
             (storage_location or "").strip(),
             (image_url or "").strip(),
@@ -43,7 +55,56 @@ def add_item(
         ),
     )
     conn.commit()
-    return int(cur.lastrowid)
+
+
+def count_items_by_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
+    row = conn.execute(
+        """SELECT COUNT(1) FROM items
+           WHERE guild_id=? AND category_id=? AND is_active=1""",
+        (guild_id, category_id),
+    ).fetchone()
+    return int(row[0] if row else 0)
+
+
+def list_items_by_category(
+    conn: sqlite3.Connection,
+    guild_id: int,
+    category_id: int,
+    offset: int = 0,
+    limit: int = 20,
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT
+            i.id, i.name, i.code, i.image_url,
+            i.qty, i.warn_below,
+            COALESCE(c.name,'기타') AS category_name,
+            i.note, i.storage_location
+        FROM items i
+        LEFT JOIN categories c ON c.id=i.category_id
+        WHERE i.guild_id=? AND i.category_id=? AND i.is_active=1
+        ORDER BY i.name ASC
+        LIMIT ? OFFSET ?
+        """,
+        (guild_id, category_id, int(limit), int(offset)),
+    ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "code": r[2],
+                "image_url": r[3],
+                "qty": r[4],
+                "warn_below": r[5],
+                "category_name": r[6],
+                "note": r[7],
+                "storage_location": r[8],
+            }
+        )
+    return out
 
 
 # 과거 코드 호환: UI/다른 모듈이 create_item을 import하는 경우가 있어 alias 제공
@@ -112,11 +173,61 @@ def search_items(conn: sqlite3.Connection, guild_id: int, keyword: str, limit: i
 def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int, reason: str = ""):
     """품목 비활성화(삭제 대체). reason은 UI/로그용 (DB 컬럼은 현재 없음)."""
     k = now_kst().kst_text
+    qty = _as_int(qty, default=0)
+    warn_below = _as_int(warn_below, default=0)
+
     conn.execute(
         "UPDATE items SET is_active=0, deactivated_at=?, updated_at=? WHERE guild_id=? AND id=?",
         (k, k, guild_id, item_id),
     )
     conn.commit()
+
+
+def count_active_items_in_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM items
+        WHERE guild_id=? AND category_id=? AND is_active=1
+        """,
+        (guild_id, category_id),
+    ).fetchone()
+    return int(row[0] if row else 0)
+
+
+def list_active_items_in_category(
+    conn: sqlite3.Connection,
+    guild_id: int,
+    category_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT id, name, code, qty, warn_below, note, storage_location, image_url
+        FROM items
+        WHERE guild_id=? AND category_id=? AND is_active=1
+        ORDER BY name ASC
+        LIMIT ? OFFSET ?
+        """,
+        (guild_id, category_id, int(limit), int(offset)),
+    ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "code": r[2],
+                "qty": r[3],
+                "warn_below": r[4],
+                "note": r[5],
+                "storage_location": r[6],
+                "image_url": r[7],
+            }
+        )
+    return out
 
 
 def reactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int):
