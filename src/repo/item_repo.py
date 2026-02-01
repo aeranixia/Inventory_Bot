@@ -56,7 +56,7 @@ def add_item(
     )
     conn.commit()
 
-def count_active_items_in_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
+def count_active_items_by_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
     row = conn.execute(
         """
         SELECT COUNT(*)
