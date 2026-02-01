@@ -29,28 +29,64 @@ class _BtnListAll(Button):
             custom_id="inv:dash:list_all",
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
 
-        # 3초 타임아웃 방지
-        await interaction.response.defer(ephemeral=True)
+    async def callback(self, interaction: discord.Interaction):
 
         try:
+
+            await interaction.response.defer(ephemeral=True)
+
+        except Exception:
+
+            pass
+
+
+        try:
+
+            from utils.time_kst import now_kst
+
+            from repo.bootstrap_repo import ensure_initialized
+
+
+            k = now_kst()
+
+            ensure_initialized(self.bot.conn, interaction.guild_id, k.kst_text)
+
+
             from ui.item_list import ItemListView
 
-            view = ItemListView(interaction.client.conn, interaction.guild_id)
-            await view.send(interaction)
-        except Exception as e:
-            print("[LIST_ALL_ERROR]", repr(e))
-            try:
-                await interaction.followup.send(
-                    f"전체보기 실패: `{type(e).__name__}: {e}`",
-                    ephemeral=True,
-                )
-            except Exception:
-                pass
+            view = ItemListView(self.bot.conn, interaction.guild_id)
 
+
+            # ✅ 품목 0개면 안내 메시지
+
+            if getattr(view, "total_all", 0) <= 0:
+
+                return await interaction.followup.send(
+
+                    "등록된 품목이 없어요. **[품목 추가]**로 먼저 등록해 주세요.",
+
+                    ephemeral=True,
+
+                )
+
+
+            emb = await view._render(interaction.guild)
+
+            await interaction.followup.send(embed=emb, view=view, ephemeral=True)
+
+
+        except Exception as e:
+
+            print("[LIST_ALL_ERROR]", repr(e))
+
+            try:
+
+                await interaction.followup.send(f"전체보기 실패: `{type(e).__name__}: {e}`", ephemeral=True)
+
+            except Exception:
+
+                pass
 
 class _BtnIncoming(Button):
     def __init__(self):
@@ -133,24 +169,67 @@ class _BtnAddItem(Button):
             custom_id="inv:dash:add_item",
         )
 
-    async def callback(self, interaction: discord.Interaction):
-        if not interaction.guild:
-            return await interaction.response.send_message("서버에서만 사용할 수 있어요.", ephemeral=True)
 
-        conn = interaction.client.conn
+    async def callback(self, interaction: discord.Interaction):
+
+        # ✅ 3초 타임아웃 방지
 
         try:
-            # 순환 import/실수로 인한 ImportError 방지: 여기서 import
+
+            await interaction.response.defer(ephemeral=True)
+
+        except Exception:
+
+            pass
+
+
+        try:
+
+            # ✅ 서버 초기화(기본 카테고리/설정 보장)
+
+            from utils.time_kst import now_kst
+
+            from repo.bootstrap_repo import ensure_initialized
+
+
+            k = now_kst()
+
+            ensure_initialized(self.bot.conn, interaction.guild_id, k.kst_text)
+
+
+            # ✅ 카테고리 없으면 안내(빈 값 int('') 방지)
+
+            from repo.category_repo import list_active_categories
+
+            cats = list_active_categories(self.bot.conn, interaction.guild_id)
+
+
+            if not cats:
+
+                return await interaction.followup.send(
+
+                    "카테고리가 아직 없어요. 먼저 `/카테고리관리`에서 카테고리를 만든 뒤 다시 시도해 주세요.",
+
+                    ephemeral=True,
+
+                )
+
+
             from ui.item_add import AddItemStartView
 
-            await interaction.response.send_message(
-                "추가할 품목의 **카테고리를 선택**하세요.",
-                ephemeral=True,
-                view=AddItemStartView(conn, interaction.guild_id),
-            )
+            view = AddItemStartView(self.bot.conn, interaction.guild_id)
+
+            await interaction.followup.send("✅ 품목 추가를 시작할게요.", view=view, ephemeral=True)
+
+
         except Exception as e:
-            print("[ADD_ITEM_BTN_ERROR]", repr(e))
-            await interaction.response.send_message(
-                f"품목 추가 UI를 여는 중 오류가 발생했어요: `{type(e).__name__}: {e}`",
-                ephemeral=True,
-            )
+
+            print("[ADD_ITEM_ERROR]", repr(e))
+
+            try:
+
+                await interaction.followup.send(f"추가 시작 실패: `{type(e).__name__}: {e}`", ephemeral=True)
+
+            except Exception:
+
+                pass

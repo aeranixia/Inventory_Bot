@@ -5,7 +5,7 @@ import discord
 from discord.ui import View, Select, Button
 
 from repo.category_repo import list_active_categories
-from repo.item_repo import list_items_by_category, count_items_by_category
+from repo.item_repo import list_items_by_category, count_items_by_category, count_active_items
 
 
 PAGE_SIZE = 10
@@ -118,6 +118,7 @@ class ItemListView(View):
         self.category_id = int(self.categories[0]["id"]) if self.categories else 0
         self.page = 0
         self.total_pages = 1
+        self.total_all = count_active_items(conn, self.guild_id)
 
         if self.categories:
             self.add_item(_CategorySelect(self))
@@ -127,6 +128,13 @@ class ItemListView(View):
     async def _render(self, guild: discord.Guild) -> discord.Embed:
         if not self.categories:
             return discord.Embed(title="전체보기", description="카테고리가 없어요. 먼저 `/카테고리관리`에서 만들어 주세요.")
+
+        # ✅ 품목이 0개면 안내만 띄우고 끝
+        if int(self.total_all) <= 0:
+            return discord.Embed(
+                title="전체보기",
+                description="등록된 품목이 없어요. **[품목 추가]**로 먼저 등록해 주세요.",
+            )
 
         total_count = count_items_by_category(self.conn, self.guild_id, self.category_id)
         self.total_pages = max(1, int(math.ceil(total_count / PAGE_SIZE)))
@@ -139,5 +147,12 @@ class ItemListView(View):
         return _build_embed(guild, cat_name, items, self.page, self.total_pages, total_count)
 
     async def send(self, interaction: discord.Interaction):
+        # 버튼/커맨드 어디서 호출되든 안전하게
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.defer(ephemeral=True)
+        except Exception:
+            pass
+
         emb = await self._render(interaction.guild)
         await interaction.followup.send(embed=emb, view=self, ephemeral=True)
