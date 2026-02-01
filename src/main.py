@@ -21,12 +21,12 @@ from ui.category_manage import CategoryManageView
 from repo.category_repo import list_categories
 
 from backup import run_daily_backup, run_monthly_archive, force_backup_now, list_backup_files
-from utils.perm import is_admin
+
+load_dotenv()
 
 ADMIN_GUILD_ID = int(os.environ.get("ADMIN_GUILD_ID", "0"))
 ADMIN_GUILD_OBJ = discord.Object(id=ADMIN_GUILD_ID) if ADMIN_GUILD_ID else None
 
-load_dotenv()
 
 # ---- Intents ----
 INTENTS = discord.Intents.default()
@@ -62,6 +62,11 @@ class InventoryBot(commands.Bot):
             self.tree.clear_commands(guild=g)
             await self.tree.sync(guild=g)
             print(f"[SYNC] Cleared guild commands on: {CLEANUP_GUILD_ID}")
+
+        if ADMIN_GUILD_ID:
+            await self.tree.sync(guild=discord.Object(id=ADMIN_GUILD_ID))
+            print(f"[SYNC] Admin guild sync: {ADMIN_GUILD_ID}")
+
 
         # ✅ 글로벌 커맨드 동기화(1회)
         await self.tree.sync()
