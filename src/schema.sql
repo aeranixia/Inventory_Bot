@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS categories (
   guild_id    INTEGER NOT NULL,
   name        TEXT    NOT NULL,
   is_active   INTEGER NOT NULL DEFAULT 1,   -- 1=활성, 0=비활성
+  deactivated_at  TEXT,
   sort_order  INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT    NOT NULL,
   updated_at  TEXT    NOT NULL,
@@ -31,6 +32,7 @@ CREATE TABLE IF NOT EXISTS items (
 
   name            TEXT    NOT NULL,             -- 품목명(검색 대상)
   code            TEXT,                         -- 코드(선택값, 검색 대상) 예: 49, G15
+  image_url       TEXT,                         -- 대표 이미지 URL(선택)
   qty             INTEGER NOT NULL DEFAULT 0,   -- 음수 허용
   warn_below      INTEGER NOT NULL DEFAULT 0,   -- 0이면 경고 끔
   note            TEXT    NOT NULL DEFAULT '',
