@@ -1,4 +1,3 @@
-# src/ui/dashboard_view.py
 from __future__ import annotations
 
 import discord
@@ -6,7 +5,7 @@ from discord.ui import View, Button
 from utils.perm import is_admin
 from ui.item_action_search import ActionItemSearchModal
 from ui.search_router import start_item_search
-
+from ui.item_list import ItemListView
 
 
 class DashboardView(View):
@@ -37,8 +36,6 @@ class _BtnListAll(Button):
         await interaction.response.defer(ephemeral=True)
 
         try:
-            from ui.item_list import ItemListView
-
             view = ItemListView(interaction.client.conn, interaction.guild_id)
             await view.send(interaction)
         except Exception as e:
@@ -85,7 +82,6 @@ class _BtnOutgoing(Button):
         if not is_admin(interaction, interaction.client.conn):
             return await interaction.response.send_message("권한이 없어요.", ephemeral=True)
 
-        
         await interaction.response.send_modal(
             ActionItemSearchModal(interaction.client.conn, interaction.guild_id, action="OUT")
         )

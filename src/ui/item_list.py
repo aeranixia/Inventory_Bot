@@ -5,139 +5,204 @@ import discord
 from discord.ui import View, Select, Button
 
 from repo.category_repo import list_active_categories
-from repo.item_repo import list_items_by_category, count_items_by_category
+from repo.item_repo import (
+    list_items_by_category,
+    count_items_by_category,
+    count_active_items,
+)
+
+PAGE_SIZE = 12
 
 
-PAGE_SIZE = 10
-
-
-def _fmt_qty(it: dict) -> str:
+def _fmt_item_line(it: dict) -> str:
+    name = str(it.get("name") or "").strip() or "(이름없음)"
+    code = str(it.get("code") or "").strip()
     qty = int(it.get("qty") or 0)
     warn = int(it.get("warn_below") or 0)
-    if warn > 0 and qty <= warn:
-        return f"⚠️ {qty} (≤{warn})"
-    return str(qty)
+    storage = str(it.get("storage_location") or "").strip()
+    note = str(it.get("note") or "").strip()
 
+    bits = [f"**{name}**"]
+    if code:
+        bits.append(f"`{code}`")
+    bits.append(f"수량: **{qty}**")
+    if warn > 0:
+        bits.append(f"(경고<{warn})")
+    if storage:
+        bits.append(f"위치: {storage}")
+    if note:
+        bits.append(f"메모: {note}")
 
-def _build_embed(guild: discord.Guild, category_name: str, items: list[dict], page: int, total_pages: int, total_count: int) -> discord.Embed:
-    title = f"전체보기 - {category_name}"
-    desc = f"총 **{total_count}개** (페이지 {page+1}/{max(1,total_pages)})"
-    emb = discord.Embed(title=title, description=desc)
-
-    if not items:
-        emb.add_field(name="품목", value="- (비어있어요)", inline=False)
-        return emb
-
-    lines = []
-    for it in items:
-        name = str(it.get("name") or "")
-        code = (it.get("code") or "").strip()
-        loc = (it.get("storage_location") or "").strip()
-        qty = _fmt_qty(it)
-        bits = [f"**{name}**", f"수량: {qty}"]
-        if code:
-            bits.append(f"코드: `{code}`")
-        if loc:
-            bits.append(f"보관: {loc}")
-        lines.append(" · ".join(bits))
-
-    # 디스코드 필드 글자수 제한 고려: 한 필드에 최대 1024
-    chunk = "\n".join([f"- {x}" for x in lines])
-    if len(chunk) <= 1024:
-        emb.add_field(name="품목", value=chunk, inline=False)
-    else:
-        # 길면 둘로 나눔
-        mid = len(lines) // 2 or 1
-        c1 = "\n".join([f"- {x}" for x in lines[:mid]])
-        c2 = "\n".join([f"- {x}" for x in lines[mid:]])
-        emb.add_field(name="품목(1)", value=c1[:1024] or "-", inline=False)
-        emb.add_field(name="품목(2)", value=c2[:1024] or "-", inline=False)
-
-    return emb
+    return " · ".join(bits)
 
 
 class _CategorySelect(Select):
-    def __init__(self, parent: "ItemListView"):
-        self.parent = parent
-        options = []
-        for c in parent.categories[:25]:  # Discord limit
-            options.append(discord.SelectOption(label=c["name"], value=str(c["id"])))
-        super().__init__(
-            placeholder="카테고리를 선택하세요",
-            min_values=1,
-            max_values=1,
-            options=options,
-        )
+    def __init__(self, categories: list[dict], current_category_id: int | None):
+        self.categories = categories
+
+        opts = []
+        for c in categories[:25]:
+            cid = str(c.get("id") or "")
+            label = str(c.get("name") or "")[:100] or "(이름없음)"
+            opts.append(
+                discord.SelectOption(
+                    label=label,
+                    value=cid,
+                    default=(current_category_id is not None and str(current_category_id) == cid),
+                )
+            )
+
+        # 카테고리가 하나도 없으면 빈 options로 Select 생성이 안 되므로 방어
+        if not opts:
+            opts = [
+                discord.SelectOption(
+                    label="(카테고리 없음)",
+                    value="__none__",
+                    description="먼저 /카테고리관리에서 카테고리를 추가하세요",
+                )
+            ]
+            super().__init__(placeholder="카테고리 없음", min_values=1, max_values=1, options=opts, disabled=True)
+        else:
+            super().__init__(placeholder="카테고리 선택", min_values=1, max_values=1, options=opts)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        try:
-            self.parent.category_id = int(self.values[0])
-            self.parent.page = 0
-            emb = await self.parent._render(interaction.guild)
-            await interaction.followup.edit_message(message_id=interaction.message.id, embed=emb, view=self.parent)
-        except Exception as e:
-            await interaction.followup.send(f"표시 실패: `{type(e).__name__}: {e}`", ephemeral=True)
+        view = self.view
+        if not isinstance(view, ItemListView):
+            return
+
+        raw = (self.values[0] if self.values else "").strip()
+        if not raw.isdigit():
+            return await interaction.response.send_message("카테고리를 다시 선택해 주세요.", ephemeral=True)
+
+        view.category_id = int(raw)
+        view.page = 1
+
+        await view._update_message(interaction)
 
 
-class _Prev(Button):
-    def __init__(self, parent: "ItemListView"):
-        super().__init__(label="이전", style=discord.ButtonStyle.secondary)
-        self.parent = parent
-
-    async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        if self.parent.page > 0:
-            self.parent.page -= 1
-        emb = await self.parent._render(interaction.guild)
-        await interaction.followup.edit_message(message_id=interaction.message.id, embed=emb, view=self.parent)
-
-
-class _Next(Button):
-    def __init__(self, parent: "ItemListView"):
-        super().__init__(label="다음", style=discord.ButtonStyle.secondary)
-        self.parent = parent
+class _BtnPrev(Button):
+    def __init__(self):
+        super().__init__(label="◀", style=discord.ButtonStyle.secondary)
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
-        if self.parent.page + 1 < self.parent.total_pages:
-            self.parent.page += 1
-        emb = await self.parent._render(interaction.guild)
-        await interaction.followup.edit_message(message_id=interaction.message.id, embed=emb, view=self.parent)
+        view = self.view
+        if not isinstance(view, ItemListView):
+            return
+        if view.page > 1:
+            view.page -= 1
+        await view._update_message(interaction)
+
+
+class _BtnNext(Button):
+    def __init__(self):
+        super().__init__(label="▶", style=discord.ButtonStyle.secondary)
+
+    async def callback(self, interaction: discord.Interaction):
+        view = self.view
+        if not isinstance(view, ItemListView):
+            return
+        if view.page < view.total_pages:
+            view.page += 1
+        await view._update_message(interaction)
 
 
 class ItemListView(View):
-    """카테고리별 전체보기(페이지네이션)"""
+    """
+    전체보기 UI:
+    - 카테고리 선택(select)
+    - 페이지 이동(prev/next)
+    - 각 카테고리별 품목을 페이지 단위로 표시
+    """
 
     def __init__(self, conn, guild_id: int):
-        super().__init__(timeout=None)
+        super().__init__(timeout=120)
+
         self.conn = conn
         self.guild_id = int(guild_id)
-
-        self.categories = list_active_categories(conn, self.guild_id)
-        self.category_id = int(self.categories[0]["id"]) if self.categories else 0
-        self.page = 0
+        self.category_id: int | None = None
+        self.page = 1
         self.total_pages = 1
 
-        if self.categories:
-            self.add_item(_CategorySelect(self))
-        self.add_item(_Prev(self))
-        self.add_item(_Next(self))
-
-    async def _render(self, guild: discord.Guild) -> discord.Embed:
-        if not self.categories:
-            return discord.Embed(title="전체보기", description="카테고리가 없어요. 먼저 `/카테고리관리`에서 만들어 주세요.")
-
-        total_count = count_items_by_category(self.conn, self.guild_id, self.category_id)
-        self.total_pages = max(1, int(math.ceil(total_count / PAGE_SIZE)))
-        self.page = max(0, min(self.page, self.total_pages - 1))
-
-        offset = self.page * PAGE_SIZE
-        items = list_items_by_category(self.conn, self.guild_id, self.category_id, offset=offset, limit=PAGE_SIZE)
-
-        cat_name = next((c["name"] for c in self.categories if int(c["id"]) == int(self.category_id)), "카테고리")
-        return _build_embed(guild, cat_name, items, self.page, self.total_pages, total_count)
+        # children은 send()에서 categories 확정 후 구성한다.
 
     async def send(self, interaction: discord.Interaction):
-        emb = await self._render(interaction.guild)
-        await interaction.followup.send(embed=emb, view=self, ephemeral=True)
+        # ✅ (요구사항) 품목이 하나도 없으면 “없다” 안내하고 끝
+        total = count_active_items(self.conn, self.guild_id)
+        if total <= 0:
+            msg = "등록된 품목이 없어요. 먼저 **품목 추가**를 해 주세요."
+            if interaction.response.is_done():
+                return await interaction.followup.send(msg, ephemeral=True)
+            return await interaction.response.send_message(msg, ephemeral=True)
+
+        cats = list_active_categories(self.conn, self.guild_id)
+        if cats:
+            self.category_id = int(cats[0]["id"])
+        else:
+            # 카테고리가 없으면, (이론상 ensure_initialized로 생길 텐데) 혹시 몰라 방어
+            msg = "카테고리가 없어요. 먼저 `/카테고리관리`에서 카테고리를 추가해 주세요."
+            if interaction.response.is_done():
+                return await interaction.followup.send(msg, ephemeral=True)
+            return await interaction.response.send_message(msg, ephemeral=True)
+
+        # children 구성(처음 1회)
+        self.clear_items()
+        self.add_item(_CategorySelect(cats, self.category_id))
+        self.add_item(_BtnPrev())
+        self.add_item(_BtnNext())
+
+        emb = await self._render_embed()
+
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=emb, view=self, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=emb, view=self, ephemeral=True)
+
+    async def _render_embed(self) -> discord.Embed:
+        # 현재 카테고리 기준 count / paging
+        assert self.category_id is not None
+
+        total = count_items_by_category(self.conn, self.guild_id, self.category_id)
+        self.total_pages = max(1, math.ceil(total / PAGE_SIZE))
+        self.page = max(1, min(self.page, self.total_pages))
+
+        offset = (self.page - 1) * PAGE_SIZE
+        items = list_items_by_category(
+            self.conn,
+            self.guild_id,
+            self.category_id,
+            offset=offset,
+            limit=PAGE_SIZE,
+        )
+
+        # 카테고리명 찾기
+        cat_name = "카테고리"
+        for c in list_active_categories(self.conn, self.guild_id):
+            if int(c["id"]) == int(self.category_id):
+                cat_name = str(c["name"])
+                break
+
+        emb = discord.Embed(
+            title=f"📦 전체보기 · {cat_name}",
+            description=f"페이지 **{self.page}/{self.total_pages}** · 총 **{total}**개",
+        )
+
+        if not items:
+            emb.add_field(name="품목", value="(이 카테고리에 품목이 없어요)", inline=False)
+            return emb
+
+        lines = [_fmt_item_line(it) for it in items]
+        emb.add_field(name="품목", value="\n".join(lines)[:3900], inline=False)
+        return emb
+
+    async def _update_message(self, interaction: discord.Interaction):
+        emb = await self._render_embed()
+
+        # 컴포넌트 interaction은 message가 존재한다.
+        try:
+            await interaction.response.edit_message(embed=emb, view=self)
+        except Exception:
+            # 이미 응답이 끝났거나 edit 실패 시 followup으로
+            try:
+                await interaction.followup.send(embed=emb, view=self, ephemeral=True)
+            except Exception:
+                pass
