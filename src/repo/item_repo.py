@@ -35,14 +35,14 @@ def search_items(conn: sqlite3.Connection, guild_id: int, keyword: str, limit: i
     rows = conn.execute(
         """
         SELECT
-            i.id, i.name, i.code, i.image_url,
-            i.qty, c.name AS category_name,
-            i.note, i.storage_location
+            i.id, i.name, i.code, IFNULL(i.image_url,''),
+            i.qty, COALESCE(c.name,'기타') AS category_name,
+            IFNULL(i.note,''), IFNULL(i.storage_location,'')
         FROM items i
         LEFT JOIN categories c ON c.id=i.category_id
         WHERE i.guild_id=?
           AND i.is_active=1
-          AND (i.name LIKE ? OR i.code LIKE ?)
+          AND (i.name LIKE ? OR IFNULL(i.code,'') LIKE ?)
         ORDER BY i.name ASC
         LIMIT ?
         """,
@@ -66,11 +66,14 @@ def search_items(conn: sqlite3.Connection, guild_id: int, keyword: str, limit: i
     return out
 
 
-def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int, reason: str):
+def deactivate_item(conn: sqlite3.Connection, guild_id: int, item_id: int):
+    """
+    '삭제'는 실제 삭제가 아니라 비활성화.
+    사유는 items가 아니라 movements(로그)에 남기는 게 맞음.
+    """
     k = now_kst().kst_text
     conn.execute(
         "UPDATE items SET is_active=0, deactivated_at=?, updated_at=? WHERE guild_id=? AND id=?",
-<<<<<<< HEAD
         (k, k, guild_id, item_id),
     )
     conn.commit()
@@ -89,7 +92,7 @@ def set_item_image(conn: sqlite3.Connection, guild_id: int, item_id: int, image_
     k = now_kst().kst_text
     conn.execute(
         "UPDATE items SET image_url=?, updated_at=? WHERE guild_id=? AND id=?",
-        ((image_url or ""), k, guild_id, item_id),
+        ((image_url or "").strip(), k, guild_id, item_id),
     )
     conn.commit()
 
@@ -98,27 +101,34 @@ def search_items_inactive(conn: sqlite3.Connection, guild_id: int, keyword: str,
     kw = f"%{keyword.strip()}%"
     rows = conn.execute(
         """
-        SELECT i.id, i.name, i.code, i.qty, i.note, i.storage_location,
-               COALESCE(c.name,'기타') AS category_name,
-               i.image_url
+        SELECT
+            i.id, i.name, i.code, i.qty,
+            IFNULL(i.note,''), IFNULL(i.storage_location,''),
+            COALESCE(c.name,'기타') AS category_name,
+            IFNULL(i.image_url,'')
         FROM items i
         LEFT JOIN categories c ON c.id=i.category_id
-        WHERE i.guild_id=? AND i.is_active=0 AND (i.name LIKE ? OR IFNULL(i.code,'') LIKE ?)
+        WHERE i.guild_id=?
+          AND i.is_active=0
+          AND (i.name LIKE ? OR IFNULL(i.code,'') LIKE ?)
         ORDER BY i.updated_at DESC
         LIMIT ?
         """,
         (guild_id, kw, kw, limit),
     ).fetchall()
-    out = []
+
+    out: list[dict] = []
     for r in rows:
-        try:
-            out.append(dict(r))
-        except Exception:
-            keys = ["id","name","code","qty","note","storage_location","category_name","image_url"]
-            out.append({k: r[i] for i,k in enumerate(keys)})
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "code": r[2],
+                "qty": r[3],
+                "note": r[4],
+                "storage_location": r[5],
+                "category_name": r[6],
+                "image_url": r[7],
+            }
+        )
     return out
-=======
-        (reason, k, guild_id, item_id),
-    )
-    conn.commit()
->>>>>>> a6aa13ada00ac145685d967cc0b7e75f5dd2e922
