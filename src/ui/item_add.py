@@ -121,17 +121,29 @@ class CategorySelect(Select):
 class AddItemStartView(View):
     def __init__(self, conn, guild_id: int):
         super().__init__(timeout=5 * 60)
-        cats = list_active_categories(conn, guild_id)
+        self.conn = conn
+        self.guild_id = guild_id
 
-# ✅ 카테고리가 하나도 없으면 기본 '기타'를 만들어서 진행(초기 /설정 생략 대비)
-if not cats:
-    try:
-        from repo.category_repo import get_or_create_etc_category
-        get_or_create_etc_category(conn, guild_id)
+        # 카테고리가 없으면 기본 '기타'를 자동 생성해서 진행(초기 /설정 생략 대비)
         cats = list_active_categories(conn, guild_id)
-    except Exception:
-        cats = []
-        self.add_item(CategorySelect(conn, guild_id, cats))
+        if not cats:
+            try:
+                get_or_create_etc_category(conn, guild_id)
+                cats = list_active_categories(conn, guild_id)
+            except Exception:
+                cats = []
+
+        if not cats:
+            # Select는 옵션이 1개 이상 필요하므로, 안내용 비활성 버튼만 보여준다.
+            self.add_item(
+                discord.ui.Button(
+                    label="카테고리가 없어요 (/카테고리관리에서 추가)",
+                    style=discord.ButtonStyle.secondary,
+                    disabled=True,
+                )
+            )
+        else:
+            self.add_item(CategorySelect(conn, guild_id, cats))
 
 class ContinueAddView(View):
     def __init__(self, conn, guild_id: int, category_id: int, category_name: str):

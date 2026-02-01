@@ -55,18 +55,75 @@ def add_item(
         ),
     )
     conn.commit()
+    return int(cur.lastrowid)
 
-def count_active_items(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
-    row = conn.execute(
-        """
-        SELECT COUNT(*)
-        FROM items
-        WHERE guild_id=? AND category_id=? AND is_active=1
-        """,
-        (guild_id, category_id),
-    ).fetchone()
+
+def count_active_items(conn: sqlite3.Connection, guild_id: int, category_id: int | None = None) -> int:
+    """활성(is_active=1) 품목 수를 반환합니다.
+    - category_id가 주어지면 해당 카테고리만 카운트
+    - None이면 서버 전체 카운트
+    """
+    if category_id is None:
+        row = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM items
+            WHERE guild_id=? AND is_active=1
+            """,
+            (guild_id,),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM items
+            WHERE guild_id=? AND category_id=? AND is_active=1
+            """,
+            (guild_id, category_id),
+        ).fetchone()
     return int(row[0] if row else 0)
 
+def list_active_items(
+    conn: sqlite3.Connection,
+    guild_id: int,
+    category_id: int,
+    *,
+    offset: int = 0,
+    limit: int = 20,
+) -> list[dict]:
+    """특정 카테고리의 활성 품목 목록(페이지네이션)"""
+    rows = conn.execute(
+        """
+        SELECT
+            i.id, i.name, i.code, i.image_url,
+            i.qty, i.warn_below,
+            i.note, i.storage_location,
+            COALESCE(c.name,'기타') AS category_name
+        FROM items i
+        LEFT JOIN categories c ON c.id=i.category_id
+        WHERE i.guild_id=? AND i.category_id=? AND i.is_active=1
+        ORDER BY i.name ASC
+        LIMIT ? OFFSET ?
+        """,
+        (guild_id, category_id, int(limit), int(offset)),
+    ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r[0],
+                "name": r[1],
+                "code": r[2],
+                "image_url": r[3],
+                "qty": r[4],
+                "warn_below": r[5],
+                "note": r[6],
+                "storage_location": r[7],
+                "category_name": r[8],
+            }
+        )
+    return out
 
 def count_items_by_category(conn: sqlite3.Connection, guild_id: int, category_id: int) -> int:
     row = conn.execute(
